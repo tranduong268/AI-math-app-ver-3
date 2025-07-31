@@ -1,0 +1,6 @@
+{
+  "name": "Giảm bớt độ khó - test chế độ thích ứng",
+  "description": "Một trò chơi giáo dục tương tác dành cho trẻ em với các phép toán cơ bản và đếm hình, được xây dựng bằng React và Tailwind CSS. Lưu lại lỗi sai để ôn tập.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
