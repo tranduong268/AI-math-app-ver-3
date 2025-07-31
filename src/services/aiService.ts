@@ -56,15 +56,20 @@ Yêu cầu chung:
 Nhiệm vụ của bạn là tạo ra các câu đố "Tìm vật khác biệt" có chiều sâu. Hãy ưu tiên tạo logic theo thứ tự sau:
 
 1.  **Ưu tiên cao nhất (Logic thuộc tính sâu):** Tạo câu hỏi dựa trên các thuộc tính (attributes) cụ thể. Đây là cách tạo câu đố thông minh nhất.
-    *   *Ví dụ hay:* 3 con vật ăn cỏ (chế độ ăn: 'herbivore') vs 1 con ăn thịt (chế độ ăn: 'carnivore').
-    *   *Ví dụ hay:* 3 phương tiện di chuyển trên cạn (môi trường: 'land') vs 1 phương tiện bay (môi trường: 'sky').
-    *   *Ví dụ hay:* 3 dụng cụ dùng để viết (công dụng: 'write') vs 1 dụng cụ dùng để cắt (công dụng: 'cut').
+    *   *Ví dụ hay:* 3 con vật ăn cỏ (chế độ ăn: 'ăn cỏ') vs 1 con ăn thịt (chế độ ăn: 'ăn thịt').
+    *   *Ví dụ hay:* 3 phương tiện di chuyển trên cạn (môi trường: 'trên cạn') vs 1 phương tiện bay (môi trường: 'trên không').
+    *   *Ví dụ hay:* 3 dụng cụ dùng để viết (công dụng: 'viết') vs 1 dụng cụ dùng để cắt (công dụng: 'cắt').
     *   *Ví dụ hay:* 3 vật là vật sống (là vật sống: true) vs 1 vật không sống (là vật không sống: false).
 
 2.  **Ưu tiên vừa (Logic phân loại phụ):** Nếu không thể tạo logic thuộc tính sâu, hãy dùng phân loại phụ (phân loại).
-    *   *Ví dụ:* 3 động vật có vú (phân loại: 'mammal') vs 1 loài chim (phân loại: 'bird').
+    *   *Ví dụ:* 3 động vật có vú (phân loại: 'động vật có vú') vs 1 loài chim (phân loại: 'loài chim').
 
-3.  **Hạn chế (Logic chủ đề chính):** **TRÁNH** tạo ra những câu hỏi quá đơn giản như "3 con vật, 1 cái xe". Hãy luôn cố gắng tìm ra mối liên hệ thông minh và bất ngờ nhất có thể!
+3.  **Hạn chế (Logic chủ đề chính):** CHỈ SỬ DỤNG KHI CÁC CÁCH TRÊN KHÔNG PHÙ HỢP.
+    *   *Ví dụ rất đơn giản (cần tránh):* 3 động vật (chủ đề: 'động vật') vs 1 phương tiện (chủ đề: 'phương tiện').
+
+**TRÁNH XA SỰ MƠ HỒ (AVOID AMBIGUITY):** Câu hỏi lý tưởng nhất là chỉ có **MỘT** lời giải thích hợp lý duy nhất. Trước khi chốt một bộ 4 hình, hãy tự kiểm tra xem có cách phân loại nào khác cũng hợp lý hay không. Nếu có, hãy tạo một bộ khác. Ví dụ, bộ (Đại bàng, Dơi, Máy bay, Bò) là một bộ **TỒI** vì có thể loại trừ 'Bò' (không bay) hoặc 'Máy bay' (không phải con vật). Hãy tạo ra những bộ chặt chẽ hơn.
+
+**QUAN TRỌNG NHẤT: TRÁNH** tạo ra những câu hỏi lặp đi lặp lại và quá đơn giản như "3 con vật, 1 cái xe". Hãy luôn cố gắng tìm ra mối liên hệ thông minh và bất ngờ nhất có thể!
 `;
         return `${basePrompt}
 ${logicInstructions}
