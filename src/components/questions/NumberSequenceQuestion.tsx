@@ -235,87 +235,120 @@ const FillInTheBlanksDisplay: React.FC<QuestionComponentProps<FillInTheBlanksQue
 };
 
 
-// --- Sort Sequence Component (Overhauled for better UX) ---
+// --- Sort Sequence Component (Overhauled for better UX on both Mouse and Touch) ---
 const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>> = ({ question, onAnswer, disabled }) => {
     const { playSound } = useAudio();
     const [items, setItems] = useState(() => question.scrambledSequence.map((val, i) => ({ id: `${val}-${i}`, value: val })));
+    
+    // State for rich drag experience
+    const [isDragging, setIsDragging] = useState(false);
     const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+    const [draggedItemStyle, setDraggedItemStyle] = useState<React.CSSProperties | null>(null);
+    const [initialPointerOffset, setInitialPointerOffset] = useState<{ x: number, y: number } | null>(null);
 
     const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-    const containerRef = useRef<HTMLDivElement>(null);
     itemRefs.current = [];
 
     useEffect(() => {
         setItems(question.scrambledSequence.map((val, i) => ({ id: `${val}-${i}`, value: val })));
+        setIsDragging(false);
         setDraggingIndex(null);
         setDragOverIndex(null);
     }, [question.id, question.scrambledSequence]);
 
-    const handleDragStart = (index: number) => {
+    const handleDragStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, index: number) => {
         if (disabled) return;
+        e.preventDefault(); // Prevents default behaviors like text selection on mouse drag
+        
+        const pointer = 'touches' in e ? e.touches[0] : e;
+        const targetElement = e.currentTarget;
+        const rect = targetElement.getBoundingClientRect();
+        
+        setInitialPointerOffset({ x: pointer.clientX - rect.left, y: pointer.clientY - rect.top });
+        setDraggedItemStyle({
+            position: 'fixed',
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+            zIndex: 50,
+            opacity: 0.8,
+            transform: 'scale(1.1)',
+        });
+        
+        setIsDragging(true);
         setDraggingIndex(index);
         if (navigator.vibrate) navigator.vibrate(50);
     };
+    
+    const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
+        if (!isDragging || initialPointerOffset === null) return;
+        if (e.cancelable) e.preventDefault();
+        
+        const pointer = 'touches' in e ? e.touches[0] : e;
 
-    const performReorder = useCallback(() => {
-        if (draggingIndex === null || dragOverIndex === null || draggingIndex === dragOverIndex) return;
+        setDraggedItemStyle(prev => ({
+            ...prev,
+            top: pointer.clientY - initialPointerOffset.y,
+            left: pointer.clientX - initialPointerOffset.x,
+        }));
+
+        const targetIndex = itemRefs.current.findIndex(ref => {
+            if (!ref) return false;
+            const rect = ref.getBoundingClientRect();
+            return pointer.clientX >= rect.left && pointer.clientX <= rect.right && pointer.clientY >= rect.top && pointer.clientY <= rect.bottom;
+        });
+        
+        if (targetIndex !== -1 && targetIndex !== dragOverIndex) {
+            setDragOverIndex(targetIndex);
+        }
+    }, [isDragging, initialPointerOffset, dragOverIndex]);
+
+    const handleDragEnd = useCallback(() => {
+        if (!isDragging || draggingIndex === null) return;
         
         const newItems = [...items];
-        const [draggedItem] = newItems.splice(draggingIndex, 1);
-        newItems.splice(dragOverIndex, 0, draggedItem);
+        if (dragOverIndex !== null && draggingIndex !== dragOverIndex) {
+            playSound('SEQUENCE_ITEM_SLIDE');
+            const [draggedItem] = newItems.splice(draggingIndex, 1);
+            newItems.splice(dragOverIndex, 0, draggedItem);
+            setItems(newItems);
+        }
         
-        setItems(newItems);
-        if (navigator.vibrate) navigator.vibrate(20);
-
-    }, [draggingIndex, dragOverIndex, items]);
-
-    const handleDrop = () => {
-        if (disabled) return;
-        performReorder();
+        setIsDragging(false);
         setDraggingIndex(null);
         setDragOverIndex(null);
-    };
+        setDraggedItemStyle(null);
+        setInitialPointerOffset(null);
+    }, [isDragging, draggingIndex, dragOverIndex, items, playSound]);
 
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const moveHandler = (e: TouchEvent) => {
-            if (disabled || draggingIndex === null) {
-                return;
-            }
-            // This explicitly makes the event active, allowing preventDefault.
-            e.preventDefault();
-
-            const touch = e.touches[0];
-            if (!touch) return;
-
-            const targetIndex = itemRefs.current.findIndex(ref => {
-                if (!ref) return false;
-                const rect = ref.getBoundingClientRect();
-                return (
-                    touch.clientX >= rect.left &&
-                    touch.clientX <= rect.right &&
-                    touch.clientY >= rect.top &&
-                    touch.clientY <= rect.bottom
-                );
-            });
-            
-            if (targetIndex !== -1 && targetIndex !== dragOverIndex) {
-                 setDragOverIndex(targetIndex);
-            }
-        };
-
-        // Add the event listener with the passive option set to false.
-        container.addEventListener('touchmove', moveHandler, { passive: false });
-        
-        // Clean up the event listener.
+        if (isDragging) {
+            document.addEventListener('mousemove', handleDragMove);
+            document.addEventListener('touchmove', handleDragMove, { passive: false });
+            document.addEventListener('mouseup', handleDragEnd);
+            document.addEventListener('touchend', handleDragEnd);
+        }
         return () => {
-            container.removeEventListener('touchmove', moveHandler);
+            document.removeEventListener('mousemove', handleDragMove);
+            document.removeEventListener('touchmove', handleDragMove);
+            document.removeEventListener('mouseup', handleDragEnd);
+            document.removeEventListener('touchend', handleDragEnd);
         };
-    }, [disabled, draggingIndex, dragOverIndex]);
+    }, [isDragging, handleDragMove, handleDragEnd]);
 
+    const getTransform = (index: number): string => {
+        if (draggingIndex === null || dragOverIndex === null || draggingIndex === dragOverIndex || index === draggingIndex) {
+            return '';
+        }
+        if (draggingIndex < dragOverIndex) { // Dragging forward
+            if (index > draggingIndex && index <= dragOverIndex) return 'translateX(-105%)';
+        } else { // Dragging backward
+            if (index >= dragOverIndex && index < draggingIndex) return 'translateX(105%)';
+        }
+        return '';
+    };
     
     const handleSubmit = useCallback(() => {
         if (disabled) return;
@@ -323,71 +356,40 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
         onAnswer(items.map(item => String(item.value)));
     }, [disabled, items, onAnswer, playSound]);
 
-    const getTransform = (index: number) => {
-        if (draggingIndex === null || dragOverIndex === null || draggingIndex === dragOverIndex) {
-            return '';
-        }
-        if (index === draggingIndex) {
-            return ''; // The dragging item itself doesn't shift, it gets a different style
-        }
-
-        // Dragging from left to right
-        if (draggingIndex < dragOverIndex) {
-            if (index > draggingIndex && index <= dragOverIndex) {
-                return 'translateX(-105%)'; // Shift left
-            }
-        } 
-        // Dragging from right to left
-        else if (draggingIndex > dragOverIndex) {
-            if (index >= dragOverIndex && index < draggingIndex) {
-                return 'translateX(105%)'; // Shift right
-            }
-        }
-        return '';
-    };
-
     return (
         <div className="flex flex-col items-center w-full">
+            {/* Ghost Element */}
+            {isDragging && draggedItemStyle && draggingIndex !== null && (
+                <div style={draggedItemStyle} className={`font-bold rounded-lg flex items-center justify-center pointer-events-none ${theme.fontSizes.sequenceNumber} text-white bg-indigo-500 ring-2 ring-yellow-400 shadow-xl`}>
+                    {items[draggingIndex].value}
+                </div>
+            )}
+            
             <div className="flex items-center justify-center gap-x-3 mb-4">
                 <p className={`text-xl md:text-2xl lg:text-3xl font-semibold ${theme.colors.text.secondary} text-center`}>{question.promptText}</p>
                 <span className={`text-4xl ${question.sortOrder === 'asc' ? 'text-blue-500' : 'text-red-500'}`} aria-hidden="true">
                     {question.sortOrder === 'asc' ? '↑' : '↓'}
                 </span>
             </div>
-            <div
-                ref={containerRef}
-                className="w-full min-h-[120px] p-4 bg-sky-100 rounded-lg shadow-inner flex flex-wrap items-center justify-center gap-2 md:gap-3"
-                onDragOver={(e) => e.preventDefault()}
-                onTouchEnd={handleDrop}
-                onDragEnd={handleDrop}
-            >
-                {items.map((item, index) => {
-                    const borderClass = (() => {
-                        if (!disabled) return '';
-                        const isCorrect = item.value === question.fullSequence[index];
-                        return isCorrect ? 'ring-2 ring-offset-2 ring-blue-500' : 'ring-2 ring-offset-2 ring-red-500';
-                    })();
 
-                    return (
-                        <div
-                            key={item.id}
-                            ref={el => { if (el) itemRefs.current[index] = el; }}
-                            draggable={!disabled}
-                            onDragStart={() => handleDragStart(index)}
-                            onDragEnter={() => !disabled && setDragOverIndex(index)}
-                            onTouchStart={() => handleDragStart(index)}
-                            className={`font-bold rounded-lg shadow-md flex items-center justify-center transition-all duration-300 ${theme.inputs.sequenceItem} ${theme.fontSizes.sequenceNumber} text-white bg-indigo-400
-                            ${!disabled ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}
-                            ${draggingIndex === index ? 'opacity-50 scale-110' : ''}
-                            ${borderClass}
-                            `}
-                            style={{ transform: getTransform(index) }}
-                        >
-                            {item.value}
-                        </div>
-                    );
-                })}
+            <div className="w-full min-h-[120px] p-4 bg-sky-100 rounded-lg shadow-inner flex flex-wrap items-center justify-center gap-2 md:gap-3">
+                {items.map((item, index) => (
+                    <div
+                        key={item.id}
+                        ref={el => { itemRefs.current[index] = el; }}
+                        onMouseDown={(e) => handleDragStart(e, index)}
+                        onTouchStart={(e) => handleDragStart(e, index)}
+                        className={`font-bold rounded-lg shadow-md flex items-center justify-center transition-all duration-300 ${theme.inputs.sequenceItem} ${theme.fontSizes.sequenceNumber} text-white bg-indigo-400
+                        ${!disabled ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}
+                        ${(isDragging && draggingIndex === index) ? 'opacity-0' : 'opacity-100'}
+                        `}
+                        style={{ transform: getTransform(index) }}
+                    >
+                        {item.value}
+                    </div>
+                ))}
             </div>
+
              <div className="mt-8 w-full flex justify-center">
                 <button
                     onClick={handleSubmit}
