@@ -1,7 +1,7 @@
 
 // src/services/questionService.ts
 
-import { GameMode, DifficultyLevel, Question, ShapeType, IconData, QuestionRequestType, QuestionGenerationContext } from '../../types';
+import { GameMode, DifficultyLevel, Question, ShapeType, IconData, QuestionRequestType, QuestionGenerationContext, MathQuestion, ComparisonQuestion } from '../../types';
 import { getAllBaseUnlockedIcons, shuffleArray } from './questionUtils';
 import { ICON_DATA } from '../data/iconData';
 
@@ -70,20 +70,21 @@ export const generateSingleQuestion = async (
         globallyRecentIcons = [],
         iconsUsedInCurrentGenerationCycle = new Set(),
         usedIconsThisModeCycle = new Set(),
-        failedQuestion
+        failedQuestion,
+        allowZero
     } = context;
 
     while (!question && attempts < MAX_ATTEMPTS_PER_QUESTION) {
         attempts++;
         switch (mode) {
           case GameMode.ADDITION:
-            question = generateAdditionQuestion(difficulty, existingSignatures, requestType, failedQuestion);
+            question = generateAdditionQuestion(difficulty, existingSignatures, {requestType, failedQuestion, allowZero});
             break;
           case GameMode.SUBTRACTION:
-            question = generateSubtractionQuestion(difficulty, existingSignatures, requestType, failedQuestion);
+            question = generateSubtractionQuestion(difficulty, existingSignatures, {requestType, failedQuestion, allowZero});
             break;
           case GameMode.COMPARISON:
-            question = generateComparisonQuestion(difficulty, existingSignatures, requestType, failedQuestion);
+            question = generateComparisonQuestion(difficulty, existingSignatures, {requestType, failedQuestion, allowZero});
             break;
           case GameMode.COUNTING:
             question = generateCountingQuestion(difficulty, existingSignatures, baseUnlockedIcons, globallyRecentIcons, iconsUsedInCurrentGenerationCycle);
@@ -104,6 +105,28 @@ export const generateSingleQuestion = async (
     }
     return question;
 };
+
+const questionContainsZero = (q: Question | null): boolean => {
+    if (!q) return false;
+    switch(q.type) {
+        case 'math': {
+            const mq = q as MathQuestion;
+            if (mq.variant === 'standard') return [mq.operand1True, mq.operand2True, mq.resultTrue].includes(0);
+            if (mq.variant === 'multiple_choice') return [mq.operand1, mq.operand2, mq.answer].includes(0) || mq.options.some(o => o.value === 0);
+            if (mq.variant === 'true_false') return [mq.operand1, mq.operand2, mq.displayedResult].includes(0);
+            if (mq.variant === 'balancing_equation') return [mq.operand1, mq.operand2, mq.operand3, mq.answer].includes(0);
+            break;
+        }
+        case 'comparison': {
+            const cq = q as ComparisonQuestion;
+            if (cq.variant === 'standard') return [cq.number1, cq.number2].includes(0);
+            if (cq.variant === 'expression_comparison') return [cq.expOperand1, cq.expOperand2, cq.compareTo].includes(0);
+            if (cq.variant === 'true_false') return [cq.number1, cq.number2].includes(0);
+            break;
+        }
+    }
+    return false;
+}
 
 
 export const generateQuestionsForRound = async (
@@ -150,6 +173,11 @@ export const generateQuestionsForRound = async (
   const questions: Question[] = [];
   const allBaseIcons = getAllBaseUnlockedIcons(unlockedSetIds);
   const usedIconsThisModeCycle = new Set<ShapeType>();
+  
+  // Zero limiting logic for specific modes
+  let zerosUsed = 0;
+  const ZERO_LIMIT = 2;
+  const isZeroLimitedMode = [GameMode.ADDITION, GameMode.SUBTRACTION, GameMode.COMPARISON].includes(mode);
 
   // Handle Comprehensive Challenge Mode separately (non-adaptive)
   if (mode === GameMode.COMPREHENSIVE_CHALLENGE) {
@@ -167,8 +195,33 @@ export const generateQuestionsForRound = async (
     ]);
 
     for (const gameMode of modesToGenerate) {
-      const q = await generateSingleQuestion(gameMode, difficulty, 'STANDARD', { existingSignatures });
-      if (q) questions.push(q);
+        const isCurrentQuestionZeroLimited = [GameMode.ADDITION, GameMode.SUBTRACTION, GameMode.COMPARISON].includes(gameMode);
+        let q: Question | null = null;
+        let attempts = 0;
+        
+        do {
+            const allowZero = !isCurrentQuestionZeroLimited || zerosUsed < ZERO_LIMIT;
+            const candidateQ = await generateSingleQuestion(gameMode, difficulty, 'STANDARD', { existingSignatures, allowZero });
+            
+            if (candidateQ) {
+                const hasZero = isCurrentQuestionZeroLimited && questionContainsZero(candidateQ);
+                if (hasZero && zerosUsed >= ZERO_LIMIT) {
+                    q = null; // Invalid question due to zero limit, will retry
+                } else {
+                    q = candidateQ; // Valid question
+                }
+            } else {
+                q = null; // Generation failed
+            }
+            attempts++;
+        } while (!q && attempts < 10); // Loop until we get a valid question or max out attempts.
+
+        if (q) {
+            if(isCurrentQuestionZeroLimited && questionContainsZero(q)) {
+                zerosUsed++;
+            }
+            questions.push(q);
+        }
     }
     return { questions, iconsUsedInRound: new Set() };
   }
@@ -180,18 +233,46 @@ export const generateQuestionsForRound = async (
   }
 
   for (let i = 0; i < numQuestions; i++) {
-    const question = await generateSingleQuestion(mode, difficulty, 'STANDARD', { 
-        existingSignatures,
-        baseUnlockedIcons: allBaseIcons,
-        globallyRecentIcons: masterUsedIcons,
-        iconsUsedInCurrentGenerationCycle,
-        usedIconsThisModeCycle
-     });
+    let question: Question | null = null;
+    let attempts = 0;
+    const MAX_GEN_ATTEMPTS = 10;
+
+    do {
+        const allowZero = !isZeroLimitedMode || zerosUsed < ZERO_LIMIT;
+        const candidateQuestion = await generateSingleQuestion(mode, difficulty, 'STANDARD', { 
+            existingSignatures,
+            baseUnlockedIcons: allBaseIcons,
+            globallyRecentIcons: masterUsedIcons,
+            iconsUsedInCurrentGenerationCycle,
+            usedIconsThisModeCycle,
+            allowZero
+        });
+
+        if (candidateQuestion) {
+            const hasZero = isZeroLimitedMode && questionContainsZero(candidateQuestion);
+            if (hasZero && zerosUsed >= ZERO_LIMIT) {
+                // This question is invalid because it has a zero and we're at our limit.
+                // The generator already added its signature, so the next attempt will be different.
+                question = null; // Discard and retry.
+            } else {
+                // It's a valid question (either no zero, or zero is allowed).
+                question = candidateQuestion;
+            }
+        } else {
+            // Generation failed entirely.
+            question = null;
+        }
+        attempts++;
+    } while (!question && attempts < MAX_GEN_ATTEMPTS);
+
 
     if (question) {
+      if (isZeroLimitedMode && questionContainsZero(question)) {
+          zerosUsed++;
+      }
       questions.push(question);
     } else {
-      console.warn(`Failed to generate a question for mode ${mode} at index ${i}. Round may be shorter than intended.`);
+      console.warn(`Failed to generate a valid question for mode ${mode} at index ${i} after ${MAX_GEN_ATTEMPTS} attempts. Round may be shorter.`);
     }
   }
 

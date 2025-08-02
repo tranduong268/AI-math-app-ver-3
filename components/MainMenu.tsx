@@ -54,7 +54,10 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, onShowReview, totalSta
 
   const handleStartGameWithSound = useCallback((mode: GameMode) => {
     playSound('DECISION');
-    onStartGame(mode);
+    // Add a small delay to allow the sound to play before the component unmounts
+    setTimeout(() => {
+        onStartGame(mode);
+    }, 300);
   }, [onStartGame, playSound]);
 
   const handleShowReviewWithSound = useCallback(() => {

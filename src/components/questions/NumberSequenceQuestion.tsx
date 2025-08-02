@@ -284,6 +284,9 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
 
     const handleTouchMove = (e: React.TouchEvent) => {
         if (disabled || draggingIndex === null) return;
+
+        // Prevent default touch behavior (like scrolling) which interferes with drag detection.
+        e.preventDefault();
         
         const touch = e.touches[0];
         const targetIndex = itemRefs.current.findIndex(ref => {

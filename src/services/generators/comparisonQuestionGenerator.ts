@@ -1,24 +1,19 @@
 
 
+
 import { DifficultyLevel, ComparisonQuestion, GameMode, StandardComparisonQuestion, ExpressionComparisonQuestion, TrueFalseComparisonQuestion, QuestionRequestType, Question } from '../../../types';
 import { generateId, shuffleArray } from '../questionUtils';
 
-const getComparisonSignature = (parts: (number|string)[]): string => {
-    // For addition expression comparisons, sort operands to treat 3+4 and 4+3 as the same signature.
-    const expressionMatch = parts.join('vs').match(/exp-([\d]+)\+([\d]+)vs([\d]+)/);
-    if(expressionMatch) {
-        const nums = [parseInt(expressionMatch[1]), parseInt(expressionMatch[2])].sort((a, b) => a-b);
-        return `exp-${nums[0]}+${nums[1]}vs${expressionMatch[3]}`;
-    }
-
-    const sortedParts = parts.filter(p => typeof p === 'number').sort((a,b) => (a as number) - (b as number));
-    const nonNumericParts = parts.filter(p => typeof p !== 'number');
-    return `comp-${[...nonNumericParts, ...sortedParts].join('vs')}`;
-};
+interface ComparisonGenerationOptions {
+    requestType?: QuestionRequestType;
+    failedQuestion?: Question;
+    allowZero?: boolean;
+}
 
 const generateStandardComparison = (
     difficulty: DifficultyLevel,
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): StandardComparisonQuestion | null => {
     let num1, num2, answer, q: StandardComparisonQuestion;
     let signature: string;
@@ -33,6 +28,7 @@ const generateStandardComparison = (
             if (Math.random() < 0.15) {
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
                 num2 = Math.floor(Math.random() * 9) + 1;   // 1-9
+                if (!allowZero && num2 === 0) num2 = 1;
                 // Randomly decide which number comes first
                 if (Math.random() < 0.5) {
                     [num1, num2] = [num2, num1];
@@ -50,15 +46,16 @@ const generateStandardComparison = (
             }
         } else { // Mầm logic (single digit)
             const maxRange = 10;
-            num1 = Math.floor(Math.random() * maxRange) + 1;
-            num2 = Math.floor(Math.random() * maxRange) + 1;
+            const minNum = allowZero ? 0 : 1;
+            num1 = Math.floor(Math.random() * (maxRange - minNum + 1)) + minNum;
+            num2 = Math.floor(Math.random() * (maxRange - minNum + 1)) + minNum;
         }
         
         if (num1 < num2) answer = '<';
         else if (num1 > num2) answer = '>';
         else answer = '=';
         
-        signature = getComparisonSignature([num1, num2]);
+        signature = `std-comp-${[num1, num2].sort((a,b)=>a-b).join('-')}`;
 
     } while (existingSignatures.has(signature));
     
@@ -75,7 +72,8 @@ const generateStandardComparison = (
 
 const generateExpressionComparison = (
     difficulty: DifficultyLevel,
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): ExpressionComparisonQuestion | null => {
     let expOp1, expOp2, expRes, compareTo, answer, q: ExpressionComparisonQuestion;
     let signature: string;
@@ -99,20 +97,27 @@ const generateExpressionComparison = (
             expOp2 = Math.floor(Math.random() * (expOp1 - 2)) + 1;
             expRes = expOp1 - expOp2;
         }
+
+        if (!allowZero && (expOp1 === 0 || expOp2 === 0 || expRes === 0)) {
+            signature = '';
+            continue;
+        }
         
         const offset = shuffleArray([-3, -2, -1, 0, 1, 2, 3])[0];
         compareTo = expRes + offset;
         if (compareTo < 0) compareTo = expRes + 1;
+        if (!allowZero && compareTo === 0) continue;
 
         if (expRes < compareTo) answer = '<';
         else if (expRes > compareTo) answer = '>';
         else answer = '=';
         
-        signature = `exp-${expOp1}${expOperator}${expOp2}vs${compareTo}`;
+        const sortedExpOps = [expOp1, expOp2].sort((a,b)=>a-b).join(expOperator);
+        signature = `exp-comp-${sortedExpOps}-vs-${compareTo}`;
 
-    } while (existingSignatures.has(getComparisonSignature(['exp', expOp1, expOp2, compareTo])) || expRes > maxRange);
+    } while (existingSignatures.has(signature) || expRes > maxRange);
 
-    existingSignatures.add(getComparisonSignature(['exp', expOp1, expOp2, compareTo]));
+    existingSignatures.add(signature);
     
     q = { 
         id: generateId(), type: 'comparison', variant: 'expression_comparison', mode: GameMode.COMPARISON, 
@@ -124,7 +129,8 @@ const generateExpressionComparison = (
 
 const generateTrueFalseComparison = (
     difficulty: DifficultyLevel,
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): TrueFalseComparisonQuestion | null => {
     let num1, num2, displayedOperator, answer, signature;
     let attempts = 0;
@@ -136,15 +142,16 @@ const generateTrueFalseComparison = (
         if (difficulty === DifficultyLevel.PRE_SCHOOL_CHOI) {
              if (Math.random() < 0.15) { // 15% chance for special case
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
-                num2 = Math.floor(Math.random() * 9) + 1;   // 1-9
+                num2 = Math.floor(Math.random() * 9) + (allowZero ? 0 : 1); // 1-9 or 0-9
             } else { // Main case
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
                 num2 = Math.floor(Math.random() * 11) + 10; // 10-20
             }
         } else { // Mầm
             const maxRange = 10;
-            num1 = Math.floor(Math.random() * maxRange) + 1;
-            num2 = Math.floor(Math.random() * maxRange) + 1;
+            const minNum = allowZero ? 0 : 1;
+            num1 = Math.floor(Math.random() * (maxRange - minNum + 1)) + minNum;
+            num2 = Math.floor(Math.random() * (maxRange - minNum + 1)) + minNum;
         }
 
         const trueOperator = num1 < num2 ? '<' : num1 > num2 ? '>' : '=';
@@ -158,7 +165,7 @@ const generateTrueFalseComparison = (
             answer = false;
         }
 
-        signature = getComparisonSignature(['tf', num1, num2, displayedOperator]);
+        signature = `tf-comp-${num1}${displayedOperator}${num2}`;
     } while (existingSignatures.has(signature));
     
     existingSignatures.add(signature);
@@ -174,30 +181,31 @@ const generateTrueFalseComparison = (
 export const generateComparisonQuestion = (
     difficulty: DifficultyLevel, 
     existingSignatures: Set<string>,
-    requestType: QuestionRequestType = 'STANDARD',
-    failedQuestion?: Question
+    options: ComparisonGenerationOptions = {}
 ): ComparisonQuestion | null => {
+    const { requestType = 'STANDARD', allowZero = true } = options;
+    
     if (requestType === 'CHALLENGE' && difficulty === DifficultyLevel.PRE_SCHOOL_CHOI) {
-        return generateExpressionComparison(difficulty, existingSignatures);
+        return generateExpressionComparison(difficulty, existingSignatures, allowZero);
     }
     
     if (requestType === 'BOOSTER') {
-        return generateStandardComparison(difficulty, existingSignatures);
+        return generateStandardComparison(difficulty, existingSignatures, allowZero);
     }
     
     // Standard generation logic
     const variantProb = Math.random();
     if (difficulty === DifficultyLevel.PRE_SCHOOL_MAM) {
-        if (variantProb < 0.75) return generateStandardComparison(difficulty, existingSignatures);
-        return generateTrueFalseComparison(difficulty, existingSignatures);
+        if (variantProb < 0.75) return generateStandardComparison(difficulty, existingSignatures, allowZero);
+        return generateTrueFalseComparison(difficulty, existingSignatures, allowZero);
     } else { // Chồi - Probabilities for adaptive mode (1 question at a time)
         if (variantProb < 0.10) {
-            return generateExpressionComparison(difficulty, existingSignatures); // 10%
+            return generateExpressionComparison(difficulty, existingSignatures, allowZero); // 10%
         }
         if (variantProb < 0.35) {
-            return generateTrueFalseComparison(difficulty, existingSignatures); // 25%
+            return generateTrueFalseComparison(difficulty, existingSignatures, allowZero); // 25%
         }
-        return generateStandardComparison(difficulty, existingSignatures); // 65%
+        return generateStandardComparison(difficulty, existingSignatures, allowZero); // 65%
     }
 };
 
@@ -211,27 +219,36 @@ export const generateComparisonQuestionsForChoi = (difficulty: DifficultyLevel, 
     // Define strict counts for each question type to ensure balance
     const NUM_EXPRESSION_QUESTIONS = 3;
     const NUM_TRUE_FALSE_QUESTIONS = 5;
+    
+    let zerosUsed = 0;
+    const ZERO_LIMIT = 2;
 
     // 1. Generate the fixed number of Expression Questions
     for (let i = 0; i < NUM_EXPRESSION_QUESTIONS; i++) {
-        const q = generateExpressionComparison(difficulty, existingSignatures);
+        const allowZero = zerosUsed < ZERO_LIMIT;
+        const q = generateExpressionComparison(difficulty, existingSignatures, allowZero);
         if (q) {
+            if (q.expOperand1 === 0 || q.expOperand2 === 0 || q.compareTo === 0) zerosUsed++;
             questions.push(q);
         }
     }
     
     // 2. Generate the fixed number of True/False Questions
     for (let i = 0; i < NUM_TRUE_FALSE_QUESTIONS; i++) {
-        const q = generateTrueFalseComparison(difficulty, existingSignatures);
+        const allowZero = zerosUsed < ZERO_LIMIT;
+        const q = generateTrueFalseComparison(difficulty, existingSignatures, allowZero);
         if (q) {
+            if (q.number1 === 0 || q.number2 === 0) zerosUsed++;
             questions.push(q);
         }
     }
 
     // 3. Fill the rest of the round with Standard Comparison questions
     while(questions.length < count) {
-        const q = generateStandardComparison(difficulty, existingSignatures);
+        const allowZero = zerosUsed < ZERO_LIMIT;
+        const q = generateStandardComparison(difficulty, existingSignatures, allowZero);
         if(q) {
+           if (q.number1 === 0 || q.number2 === 0) zerosUsed++;
            questions.push(q);
         } else {
             // Safety break if the generator fails to produce a unique question

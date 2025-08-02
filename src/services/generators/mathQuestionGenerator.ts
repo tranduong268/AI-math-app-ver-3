@@ -1,30 +1,22 @@
 
 
+
 import { DifficultyLevel, MathQuestion, MathQuestionUnknownSlot, GameMode, StandardMathQuestion, BalancingEquationQuestion, MultipleChoiceMathQuestion, MultipleChoiceMathOption, TrueFalseMathQuestion, QuestionRequestType, Question } from '../../../types';
 import { generateId, shuffleArray } from '../questionUtils';
 
-const getMathSignature = (oper: '+' | '-', parts: (number|string)[]): string => {
-  let finalParts: (string|number)[];
-  if (oper === '+') {
-    // For addition, sort numeric parts to handle commutativity (e.g., 2+3 is same as 3+2)
-    // but keep string parts to differentiate question types (e.g., find result vs find operand)
-    const numbers = parts.filter((p): p is number => typeof p === 'number').sort((a, b) => a - b);
-    const strings = parts.filter((p): p is string => typeof p === 'string');
-    finalParts = [...numbers, ...strings];
-  } else {
-    // For subtraction, order matters, so we don't sort.
-    finalParts = parts;
-  }
-  return `math-${oper}-${finalParts.join('-')}`;
-};
+interface MathGenerationOptions {
+    requestType?: QuestionRequestType;
+    failedQuestion?: Question;
+    allowZero?: boolean;
+}
 
 const generateStandardMathQuestion = (
     difficulty: DifficultyLevel, 
     operator: '+' | '-', 
     existingSignatures: Set<string>,
-    requestType: QuestionRequestType,
-    failedQuestion?: Question
+    options: MathGenerationOptions = {}
 ): StandardMathQuestion | null => {
+    const { requestType = 'STANDARD', failedQuestion, allowZero = true } = options;
     let qData: { operand1True: number, operand2True: number, resultTrue: number, unknownSlot: MathQuestionUnknownSlot, answer: number };
     let signature: string;
     let attempts = 0;
@@ -62,7 +54,7 @@ const generateStandardMathQuestion = (
                 o1t = Math.floor(Math.random() * (resT - 4)) + 2; 
                 o2t = resT - o1t;
             } else {
-                 o1t = Math.floor(Math.random() * (resT));
+                 o1t = Math.floor(Math.random() * (resT - (allowZero ? 0 : 1) ));
                  o2t = resT - o1t;
             }
 
@@ -79,7 +71,7 @@ const generateStandardMathQuestion = (
                  if (o1t < 4) o1t = Math.floor(Math.random() * (maxMinuend - 10)) + 10; 
                  o2t = Math.floor(Math.random() * (o1t - 3)) + 1;
             } else {
-                o2t = Math.floor(Math.random() * o1t);
+                o2t = Math.floor(Math.random() * (o1t - (allowZero ? -1 : 0)));
             }
             resT = o1t - o2t;
 
@@ -88,9 +80,24 @@ const generateStandardMathQuestion = (
             else ans = o1t;
         }
 
+        if (!allowZero && (o1t === 0 || o2t === 0 || resT === 0)) {
+            signature = '';
+            continue;
+        }
+
         qData = { operand1True: o1t, operand2True: o2t, resultTrue: resT, unknownSlot: chosenSlot, answer: ans };
-        const sigParts = [qData.operand1True, qData.operand2True, qData.unknownSlot];
-        signature = getMathSignature(operator, sigParts);
+        
+        // New robust signature generation
+        let sigParts: (string | number)[];
+        if (qData.unknownSlot === 'result') {
+            const operands = operator === '+' ? [qData.operand1True, qData.operand2True].sort((a,b)=>a-b) : [qData.operand1True, qData.operand2True];
+            sigParts = [...operands, 'q'];
+        } else if (qData.unknownSlot === 'operand1') {
+            sigParts = ['q', qData.operand2True, qData.resultTrue];
+        } else { // operand2
+            sigParts = [qData.operand1True, 'q', qData.resultTrue];
+        }
+        signature = `std-${operator}-${sigParts.join('-')}`;
 
 
     } while (existingSignatures.has(signature));
@@ -106,10 +113,10 @@ const generateStandardMathQuestion = (
 const generateBalancingEquation = (
     difficulty: DifficultyLevel, 
     operator: '+' | '-', 
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): BalancingEquationQuestion | null => {
-    let o1, o2, o3, ans, sigParts: (number|string)[];
-    let signature: string;
+    let o1, o2, o3, ans, signature: string;
     let attempts = 0;
 
     do {
@@ -134,10 +141,18 @@ const generateBalancingEquation = (
             ans = o3 - result;
         }
         
-        if(ans <= 0 || o1 === o3 || o2 === ans || o1 === ans || o2 === o3 || o2 <= 0) continue;
+        if (!allowZero && (o1 === 0 || o2 === 0 || o3 === 0 || ans === 0)) {
+            signature = '';
+            continue;
+        }
+        if(ans <= 0 || o1 === o3 || o2 === ans || o1 === ans || o2 === o3 || o2 <= 0) {
+            signature = '';
+            continue;
+        }
 
-        sigParts = [o1, o2, o3, ans].sort((a,b)=>a-b);
-        signature = getMathSignature(operator, ['bal', ...sigParts]);
+        const leftResult = operator === '+' ? o1 + o2 : o1 - o2;
+        signature = `bal-${operator}-${leftResult}-vs-${o3}`;
+
     } while (existingSignatures.has(signature));
 
     existingSignatures.add(signature);
@@ -153,7 +168,8 @@ const generateBalancingEquation = (
 const generateMultipleChoiceMath = (
     difficulty: DifficultyLevel, 
     operator: '+' | '-', 
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): MultipleChoiceMathQuestion | null => {
     let o1, o2, ans, options: MultipleChoiceMathOption[];
     let signature: string;
@@ -163,7 +179,7 @@ const generateMultipleChoiceMath = (
         attempts++;
         if (attempts > 50) return null;
 
-        const minResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 11 : 1;
+        const minResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 11 : (allowZero ? 0 : 1);
         const maxResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 20 : 10;
         
         if (operator === '+') {
@@ -171,7 +187,7 @@ const generateMultipleChoiceMath = (
             if (difficulty === DifficultyLevel.PRE_SCHOOL_CHOI) {
                 o1 = Math.floor(Math.random() * (tempAns - 3)) + 2;
             } else {
-                 o1 = Math.floor(Math.random() * (tempAns + 1));
+                 o1 = Math.floor(Math.random() * (tempAns + (allowZero ? 1 : 0)));
             }
             o2 = tempAns - o1;
             ans = tempAns;
@@ -182,9 +198,14 @@ const generateMultipleChoiceMath = (
                 if (o1 < 3) o1 = Math.floor(Math.random() * (maxResult - 10)) + 10; 
                  o2 = Math.floor(Math.random() * (o1 - 2)) + 1;
             } else {
-                o2 = Math.floor(Math.random() * (o1 + 1));
+                o2 = Math.floor(Math.random() * (o1 + (allowZero ? 1 : 0)));
             }
             ans = o1 - o2;
+        }
+
+        if (!allowZero && (o1 === 0 || o2 === 0 || ans === 0)) {
+            signature = '';
+            continue;
         }
 
         const distractors = new Set<number>();
@@ -200,8 +221,9 @@ const generateMultipleChoiceMath = (
             { id: generateId(), value: ans, isCorrect: true },
             ...Array.from(distractors).map(d => ({ id: generateId(), value: d, isCorrect: false }))
         ]);
-
-        signature = getMathSignature(operator, ['mc', o1, o2]);
+        
+        const operands = operator === '+' ? [o1, o2].sort((a,b)=>a-b) : [o1, o2];
+        signature = `mc-${operator}-${operands.join('-')}`;
 
     } while (existingSignatures.has(signature));
     
@@ -218,7 +240,8 @@ const generateMultipleChoiceMath = (
 const generateTrueFalseMathQuestion = (
     difficulty: DifficultyLevel,
     operator: '+' | '-',
-    existingSignatures: Set<string>
+    existingSignatures: Set<string>,
+    allowZero: boolean
 ): TrueFalseMathQuestion | null => {
     let o1, o2, trueResult, displayedResult, answer, signature;
     let attempts = 0;
@@ -227,20 +250,22 @@ const generateTrueFalseMathQuestion = (
         attempts++;
         
         const maxResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 20 : 10;
-        const minResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 5 : 0;
+        const minResult = difficulty === DifficultyLevel.PRE_SCHOOL_CHOI ? 5 : (allowZero ? 0 : 1);
         
         // Step 1: Generate valid operands
         if (operator === '+') {
-            o1 = Math.floor(Math.random() * (maxResult / 2)) + 1;
-            o2 = Math.floor(Math.random() * (maxResult / 2)) + 1;
+            o1 = Math.floor(Math.random() * (maxResult / 2)) + (allowZero ? 0 : 1);
+            o2 = Math.floor(Math.random() * (maxResult / 2)) + (allowZero ? 0 : 1);
             trueResult = o1 + o2;
             if (trueResult > maxResult || trueResult < minResult) continue;
         } else { // '-'
             o1 = Math.floor(Math.random() * (maxResult - minResult)) + minResult;
-            if (o1 < 2) o1 = 2; // ensure subtraction is meaningful
-            o2 = Math.floor(Math.random() * o1);
+            if (!allowZero && o1 === 0) o1 = 1;
+            o2 = Math.floor(Math.random() * (o1 + (allowZero ? 1 : 0)));
             trueResult = o1 - o2;
         }
+        
+        if (!allowZero && (o1 === 0 || o2 === 0 || trueResult === 0)) continue;
 
         // Step 2: Decide if it's a true or false statement and generate displayed result
         if (Math.random() < 0.5) {
@@ -257,7 +282,9 @@ const generateTrueFalseMathQuestion = (
         }
         
         // Step 3: Check for signature uniqueness
-        signature = getMathSignature(operator, ['tf', o1, o2, displayedResult]);
+        const operands = operator === '+' ? [o1, o2].sort((a,b)=>a-b) : [o1, o2];
+        signature = `tf-${operator}-${operands.join('-')}-vs-${displayedResult}`;
+
         if (!existingSignatures.has(signature)) {
             existingSignatures.add(signature);
             return {
@@ -277,38 +304,36 @@ const generateQuestion = (
   difficulty: DifficultyLevel, 
   operator: '+' | '-',
   existingSignatures: Set<string>,
-  requestType: QuestionRequestType = 'STANDARD',
-  failedQuestion?: Question
+  options: MathGenerationOptions = {}
 ): MathQuestion | null => {
+    const { requestType = 'STANDARD', allowZero = true } = options;
 
     if (requestType === 'CHALLENGE' && difficulty === DifficultyLevel.PRE_SCHOOL_CHOI) {
-        // User request: Remove balancing equations. Replace with a harder standard question.
-        return generateStandardMathQuestion(difficulty, operator, existingSignatures, requestType, failedQuestion);
+        return generateStandardMathQuestion(difficulty, operator, existingSignatures, options);
     }
     
     if (requestType === 'BOOSTER') {
         // Force a simple standard question for boosters
-        return generateStandardMathQuestion(difficulty, operator, existingSignatures, requestType, failedQuestion);
+        return generateStandardMathQuestion(difficulty, operator, existingSignatures, options);
     }
 
     // Standard generation logic with varied probabilities
     const variantProb = Math.random();
     if (difficulty === DifficultyLevel.PRE_SCHOOL_MAM) {
-        if (variantProb < 0.65) return generateStandardMathQuestion(difficulty, operator, existingSignatures, requestType);
-        if (variantProb < 0.85) return generateMultipleChoiceMath(difficulty, operator, existingSignatures);
-        return generateTrueFalseMathQuestion(difficulty, operator, existingSignatures);
+        if (variantProb < 0.65) return generateStandardMathQuestion(difficulty, operator, existingSignatures, options);
+        if (variantProb < 0.85) return generateMultipleChoiceMath(difficulty, operator, existingSignatures, allowZero);
+        return generateTrueFalseMathQuestion(difficulty, operator, existingSignatures, allowZero);
     } else { // Chồi
-        // User request: Remove balancing equations.
-        if (variantProb < 0.55) return generateStandardMathQuestion(difficulty, operator, existingSignatures, requestType);
-        if (variantProb < 0.80) return generateMultipleChoiceMath(difficulty, operator, existingSignatures);
-        return generateTrueFalseMathQuestion(difficulty, operator, existingSignatures);
+        if (variantProb < 0.55) return generateStandardMathQuestion(difficulty, operator, existingSignatures, options);
+        if (variantProb < 0.80) return generateMultipleChoiceMath(difficulty, operator, existingSignatures, allowZero);
+        return generateTrueFalseMathQuestion(difficulty, operator, existingSignatures, allowZero);
     }
 };
 
-export const generateAdditionQuestion = (difficulty: DifficultyLevel, existingSignatures: Set<string>, requestType?: QuestionRequestType, failedQuestion?: Question): MathQuestion | null => {
-    return generateQuestion(difficulty, '+', existingSignatures, requestType, failedQuestion);
+export const generateAdditionQuestion = (difficulty: DifficultyLevel, existingSignatures: Set<string>, options?: MathGenerationOptions): MathQuestion | null => {
+    return generateQuestion(difficulty, '+', existingSignatures, options);
 };
 
-export const generateSubtractionQuestion = (difficulty: DifficultyLevel, existingSignatures: Set<string>, requestType?: QuestionRequestType, failedQuestion?: Question): MathQuestion | null => {
-    return generateQuestion(difficulty, '-', existingSignatures, requestType, failedQuestion);
+export const generateSubtractionQuestion = (difficulty: DifficultyLevel, existingSignatures: Set<string>, options?: MathGenerationOptions): MathQuestion | null => {
+    return generateQuestion(difficulty, '-', existingSignatures, options);
 };

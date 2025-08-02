@@ -1,4 +1,5 @@
 
+
 export enum GameMode {
   ADDITION = 'PHÉP CỘNG (+)',
   SUBTRACTION = 'PHÉP TRỪ (-)',
@@ -38,6 +39,7 @@ export interface QuestionGenerationContext {
   globallyRecentIcons?: ShapeType[];
   iconsUsedInCurrentGenerationCycle?: Set<ShapeType>;
   usedIconsThisModeCycle?: Set<ShapeType>;
+  allowZero?: boolean; // New flag to control zero generation
 }
 
 
