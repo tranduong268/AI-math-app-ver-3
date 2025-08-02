@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NumberSequenceQuestion, FillInTheBlanksQuestion, FindAndFixErrorQuestion, SortSequenceQuestion } from '../../../types';
 import { useAudio } from '../../contexts/AudioContext';
@@ -244,6 +243,7 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
     const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const containerRef = useRef<HTMLDivElement>(null);
     itemRefs.current = [];
 
     useEffect(() => {
@@ -256,11 +256,6 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
         if (disabled) return;
         setDraggingIndex(index);
         if (navigator.vibrate) navigator.vibrate(50);
-    };
-
-    const handleDragEnter = (index: number) => {
-        if (disabled || draggingIndex === null) return;
-        setDragOverIndex(index);
     };
 
     const performReorder = useCallback(() => {
@@ -282,28 +277,45 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
         setDragOverIndex(null);
     };
 
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (disabled || draggingIndex === null) return;
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
 
-        // Prevent default touch behavior (like scrolling) which interferes with drag detection.
-        e.preventDefault();
+        const moveHandler = (e: TouchEvent) => {
+            if (disabled || draggingIndex === null) {
+                return;
+            }
+            // This explicitly makes the event active, allowing preventDefault.
+            e.preventDefault();
+
+            const touch = e.touches[0];
+            if (!touch) return;
+
+            const targetIndex = itemRefs.current.findIndex(ref => {
+                if (!ref) return false;
+                const rect = ref.getBoundingClientRect();
+                return (
+                    touch.clientX >= rect.left &&
+                    touch.clientX <= rect.right &&
+                    touch.clientY >= rect.top &&
+                    touch.clientY <= rect.bottom
+                );
+            });
+            
+            if (targetIndex !== -1 && targetIndex !== dragOverIndex) {
+                 setDragOverIndex(targetIndex);
+            }
+        };
+
+        // Add the event listener with the passive option set to false.
+        container.addEventListener('touchmove', moveHandler, { passive: false });
         
-        const touch = e.touches[0];
-        const targetIndex = itemRefs.current.findIndex(ref => {
-            if (!ref) return false;
-            const rect = ref.getBoundingClientRect();
-            return (
-                touch.clientX >= rect.left &&
-                touch.clientX <= rect.right &&
-                touch.clientY >= rect.top &&
-                touch.clientY <= rect.bottom
-            );
-        });
+        // Clean up the event listener.
+        return () => {
+            container.removeEventListener('touchmove', moveHandler);
+        };
+    }, [disabled, draggingIndex, dragOverIndex]);
 
-        if (targetIndex !== -1) {
-            handleDragEnter(targetIndex);
-        }
-    };
     
     const handleSubmit = useCallback(() => {
         if (disabled) return;
@@ -343,9 +355,9 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
                 </span>
             </div>
             <div
+                ref={containerRef}
                 className="w-full min-h-[120px] p-4 bg-sky-100 rounded-lg shadow-inner flex flex-wrap items-center justify-center gap-2 md:gap-3"
                 onDragOver={(e) => e.preventDefault()}
-                onTouchMove={handleTouchMove}
                 onTouchEnd={handleDrop}
                 onDragEnd={handleDrop}
             >
@@ -362,7 +374,7 @@ const SortSequenceDisplay: React.FC<QuestionComponentProps<SortSequenceQuestion>
                             ref={el => { if (el) itemRefs.current[index] = el; }}
                             draggable={!disabled}
                             onDragStart={() => handleDragStart(index)}
-                            onDragEnter={() => handleDragEnter(index)}
+                            onDragEnter={() => !disabled && setDragOverIndex(index)}
                             onTouchStart={() => handleDragStart(index)}
                             className={`font-bold rounded-lg shadow-md flex items-center justify-center transition-all duration-300 ${theme.inputs.sequenceItem} ${theme.fontSizes.sequenceNumber} text-white bg-indigo-400
                             ${!disabled ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}
