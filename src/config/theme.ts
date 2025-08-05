@@ -154,7 +154,7 @@ const theme = {
     primary: 'bg-blue-500 hover:bg-blue-600 text-white py-3 px-10 text-xl',
     mainMenu: 'w-full py-3 px-4 md:py-4 md:px-6 rounded-xl shadow-lg hover:scale-105 transition-all duration-150 ease-in-out flex items-center justify-center font-semibold',
     comparisonOperator: 'py-2 px-4 md:py-3 md:px-5 bg-sky-200 hover:bg-sky-300 text-sky-700',
-    option: 'p-5 md:p-6 rounded-lg shadow-md font-semibold transition-all transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed min-h-[80px] md:min-h-[100px] flex items-center justify-center break-words whitespace-normal leading-tight',
+    option: 'p-3 md:p-4 rounded-lg shadow-md font-semibold transition-all transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed min-h-[68px] md:min-h-[80px] flex items-center justify-center break-words whitespace-normal leading-tight',
     mathOption: 'p-4 rounded-lg shadow-md font-semibold transition-all transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed min-h-[70px] md:min-h-[90px] flex items-center justify-center break-words whitespace-normal leading-tight',
     optionCorrect: 'bg-green-300 text-green-700',
     optionIncorrect: 'bg-red-300 text-red-700',

@@ -1,5 +1,6 @@
 
 
+
 export enum GameMode {
   ADDITION = 'PHÉP CỘNG (+)',
   SUBTRACTION = 'PHÉP TRỪ (-)',

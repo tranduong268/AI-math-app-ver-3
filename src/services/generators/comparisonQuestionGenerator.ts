@@ -1,6 +1,7 @@
 
 
 
+
 import { DifficultyLevel, ComparisonQuestion, GameMode, StandardComparisonQuestion, ExpressionComparisonQuestion, TrueFalseComparisonQuestion, QuestionRequestType, Question } from '../../../types';
 import { generateId, shuffleArray } from '../questionUtils';
 
@@ -27,7 +28,7 @@ const generateStandardComparison = (
             // ~15% chance to generate a two-digit vs one-digit question for variety.
             if (Math.random() < 0.15) {
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
-                num2 = Math.floor(Math.random() * 9) + 1;   // 1-9
+                num2 = Math.floor(Math.random() * (9 - (allowZero ? 0 : 1))) + (allowZero ? 0 : 1);   // 1-9
                 if (!allowZero && num2 === 0) num2 = 1;
                 // Randomly decide which number comes first
                 if (Math.random() < 0.5) {
@@ -142,7 +143,7 @@ const generateTrueFalseComparison = (
         if (difficulty === DifficultyLevel.PRE_SCHOOL_CHOI) {
              if (Math.random() < 0.15) { // 15% chance for special case
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
-                num2 = Math.floor(Math.random() * 9) + (allowZero ? 0 : 1); // 1-9 or 0-9
+                num2 = Math.floor(Math.random() * (9 - (allowZero ? 0 : 1))) + (allowZero ? 0 : 1); // 1-9 or 0-9
             } else { // Main case
                 num1 = Math.floor(Math.random() * 11) + 10; // 10-20
                 num2 = Math.floor(Math.random() * 11) + 10; // 10-20

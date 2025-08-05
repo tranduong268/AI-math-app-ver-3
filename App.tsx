@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameMode, StoredSession, IncorrectAttempt, ImageSet, DifficultyLevel, Question } from './types'; // Added Question
 import { useAudio } from './src/contexts/AudioContext';
