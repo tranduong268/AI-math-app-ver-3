@@ -1,4 +1,6 @@
-import { ShapeType } from '../../types';
+
+
+import { ShapeType, Question, MathQuestion, ComparisonQuestion } from '../../types';
 import { UNLOCKABLE_IMAGE_SETS } from '../../constants';
 import { ICON_DATA } from '../data/iconData';
 
@@ -110,3 +112,25 @@ export const getVietnameseName = (key: string | undefined): string => {
     if (!key) return 'khác';
     return VIETNAMESE_NAMES[key] || key;
 };
+
+export const questionContainsZero = (q: Question | null): boolean => {
+    if (!q) return false;
+    switch(q.type) {
+        case 'math': {
+            const mq = q as MathQuestion;
+            if (mq.variant === 'standard') return [mq.operand1True, mq.operand2True, mq.resultTrue].includes(0);
+            if (mq.variant === 'multiple_choice') return [mq.operand1, mq.operand2, mq.answer].includes(0) || mq.options.some(o => o.value === 0);
+            if (mq.variant === 'true_false') return [mq.operand1, mq.operand2, mq.displayedResult].includes(0);
+            if (mq.variant === 'balancing_equation') return [mq.operand1, mq.operand2, mq.operand3, mq.answer].includes(0);
+            break;
+        }
+        case 'comparison': {
+            const cq = q as ComparisonQuestion;
+            if (cq.variant === 'standard') return [cq.number1, cq.number2].includes(0);
+            if (cq.variant === 'expression_comparison') return [cq.expOperand1, cq.expOperand2, cq.compareTo].includes(0);
+            if (cq.variant === 'true_false') return [cq.number1, cq.number2].includes(0);
+            break;
+        }
+    }
+    return false;
+}

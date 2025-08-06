@@ -60,11 +60,17 @@ class AudioService {
 
   public wakeupAudio = () => {
     if (!this.hasInteracted) return;
+    // Play a short, silent audio clip to keep the audio context active.
+    // This is a common strategy to prevent mobile browsers from suspending audio.
     const player = this.audioPool[this.poolIndex];
     if (player && player.paused) {
+        // A very short, silent WAV file encoded in base64.
         player.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         player.volume = 0;
-        player.play().catch(() => {});
+        player.play().catch(() => {
+          // This catch block is important. The play() might be interrupted by another sound,
+          // which is fine. We just want to ensure it doesn't throw an unhandled promise rejection.
+        });
     }
   }
 
@@ -79,23 +85,9 @@ class AudioService {
     }
     
     // Non-overlapping sounds can use a simpler method.
-    const nonOverlappingSounds: SoundKey[] = ['BUTTON_CLICK', 'DECISION', 'SEQUENCE_ITEM_POP', 'SEQUENCE_ITEM_SLIDE', 'TYPE'];
+    const nonOverlappingSounds: SoundKey[] = ['BUTTON_CLICK', 'DECISION', 'SEQUENCE_ITEM_POP', 'SEQUENCE_ITEM_SLIDE'];
     if (nonOverlappingSounds.includes(key)) {
         let path: string = Array.isArray(asset.path) ? asset.path[0] : asset.path;
-        if(key === 'TYPE') { // Special handling for rapid sounds using pool
-             this.poolIndex = (this.poolIndex + 1) % POOL_SIZE;
-             const player = this.audioPool[this.poolIndex];
-             const originalAudioData = this.audioCache.get(path);
-             if(originalAudioData){
-                 player.src = originalAudioData.src;
-                 player.volume = originalAudioData.volume;
-                 player.loop = originalAudioData.loop;
-                 player.currentTime = 0;
-                 player.play().catch(e => { if(e.name !== 'NotAllowedError') console.error(`Error playing pooled sound ${path}:`, e)});
-             }
-             return;
-        }
-
         const audio = this.audioCache.get(path);
         if(audio) {
             audio.currentTime = 0;
@@ -105,6 +97,7 @@ class AudioService {
         return;
     }
     
+    // Use the pool for sounds that can overlap rapidly (like typing or multiple correct answers)
     let path: string;
     if (Array.isArray(asset.path)) {
       path = asset.path[Math.floor(Math.random() * asset.path.length)];
@@ -127,7 +120,8 @@ class AudioService {
     player.currentTime = 0;
     
     player.play().catch(error => {
-      if (error.name !== 'NotAllowedError') {
+      // Don't log an error if the user hasn't interacted yet, or if play was interrupted.
+      if (error.name !== 'NotAllowedError' && error.name !== 'AbortError') {
            console.error(`Error playing pooled sound ${path}:`, error);
       }
     });
@@ -218,6 +212,8 @@ class AudioService {
     if (this.isMuted) {
       if (this.backgroundMusic) this.backgroundMusic.pause();
       if (this.lowTimeSound) this.lowTimeSound.pause();
+      // Stop all pooled sounds
+      this.audioPool.forEach(player => player.pause());
     }
     return this.isMuted;
   }
@@ -231,6 +227,7 @@ class AudioService {
     if (this.isMuted) {
        if (this.backgroundMusic) this.backgroundMusic.pause();
        if (this.lowTimeSound) this.lowTimeSound.pause();
+       this.audioPool.forEach(player => player.pause());
     }
   }
 }

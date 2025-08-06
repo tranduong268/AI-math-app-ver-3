@@ -2,6 +2,7 @@
 
 
 
+
 import { DifficultyLevel, ComparisonQuestion, GameMode, StandardComparisonQuestion, ExpressionComparisonQuestion, TrueFalseComparisonQuestion, QuestionRequestType, Question } from '../../../types';
 import { generateId, shuffleArray } from '../questionUtils';
 
@@ -214,7 +215,7 @@ export const generateComparisonQuestion = (
  * Generates a fixed, balanced set of comparison questions for the 'Choi' level.
  * This function avoids probability-based generation to ensure a consistent experience.
  */
-export const generateComparisonQuestionsForChoi = (difficulty: DifficultyLevel, existingSignatures: Set<string>, count: number): ComparisonQuestion[] => {
+export const generateComparisonQuestionsForChoi = (difficulty: DifficultyLevel, existingSignatures: Set<string>, count: number): { questions: ComparisonQuestion[], zerosGenerated: number } => {
     const questions: ComparisonQuestion[] = [];
     
     // Define strict counts for each question type to ensure balance
@@ -258,5 +259,5 @@ export const generateComparisonQuestionsForChoi = (difficulty: DifficultyLevel, 
     }
 
     // Shuffle the final list to mix the question types randomly
-    return shuffleArray(questions.slice(0, count));
+    return { questions: shuffleArray(questions.slice(0, count)), zerosGenerated: zerosUsed };
 }

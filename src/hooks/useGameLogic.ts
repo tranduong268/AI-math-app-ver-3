@@ -1,5 +1,7 @@
 
 
+
+
 import { useEffect, useCallback, useReducer, useRef } from 'react';
 import { 
   GameMode, DifficultyLevel, Question, IncorrectAttempt, MatchingPairsQuestion, EndGameMessageInfo, 
@@ -10,7 +12,7 @@ import {
 import { useAudio } from '../contexts/AudioContext';
 import { generateQuestionsForRound, generateSingleQuestion } from '../services/questionService';
 import { NUM_QUESTIONS_PER_ROUND, POSITIVE_FEEDBACKS, ENCOURAGING_FEEDBACKS, NEXT_QUESTION_DELAY_MS, SLOW_NEXT_QUESTION_DELAY_MS, CONGRATS_MESSAGES, CONGRATS_ICONS, ENCOURAGE_TRY_AGAIN_MESSAGE, ENCOURAGE_TRY_AGAIN_ICONS, POSITIVE_FEEDBACK_EMOJIS, ENCOURAGING_FEEDBACK_EMOJIS, VISUAL_PATTERN_QUESTIONS_MAM, VISUAL_PATTERN_QUESTIONS_CHOI, ODD_ONE_OUT_QUESTIONS_MAM, ODD_ONE_OUT_QUESTIONS_CHOI, COMPREHENSIVE_CHALLENGE_QUESTIONS, COMPREHENSIVE_CHALLENGE_TIME_MAM, COMPREHENSIVE_CHALLENGE_TIME_CHOI } from '../../constants';
-import { shuffleArray } from '../services/questionUtils';
+import { shuffleArray, questionContainsZero } from '../services/questionUtils';
 import { GameReducerState, GameReducerAction } from '../../types';
 
 declare var confetti: any;
@@ -154,6 +156,7 @@ const initialState: GameReducerState = {
     consecutiveCorrect: 0,
     consecutiveIncorrect: 0,
     questionStartTime: 0,
+    zerosUsed: 0,
 };
 
 const gameReducer = (state: GameReducerState, action: GameReducerAction): GameReducerState => {
@@ -161,8 +164,8 @@ const gameReducer = (state: GameReducerState, action: GameReducerAction): GameRe
         case 'INITIALIZE_GAME_START':
             return { ...initialState, isLoading: true };
 
-        case 'INITIALIZE_GAME_SUCCESS':
-            const { questions, iconsUsed, numQuestions, timeLimit, gameStatus } = action.payload;
+        case 'INITIALIZE_GAME_SUCCESS': {
+            const { questions, iconsUsed, numQuestions, timeLimit, gameStatus, zerosUsed } = action.payload;
             return {
                 ...initialState,
                 isLoading: false,
@@ -174,7 +177,9 @@ const gameReducer = (state: GameReducerState, action: GameReducerAction): GameRe
                 gameStatus,
                 currentMatchingQuestionState: questions.length > 0 && questions[0]?.type === 'matching_pairs' ? (questions[0] as MatchingPairsQuestion) : null,
                 questionStartTime: Date.now(),
+                zerosUsed: zerosUsed,
             };
+        }
 
         case 'INITIALIZE_GAME_FAILURE':
             return { ...state, isLoading: false, questions: [] };
@@ -241,13 +246,14 @@ const gameReducer = (state: GameReducerState, action: GameReducerAction): GameRe
             };
 
         case 'FETCH_NEXT_QUESTION_SUCCESS': {
-            const nextQ = action.payload.newQuestion;
+            const { newQuestion, containsZero } = action.payload;
             return {
                 ...state,
                 isGeneratingNextQuestion: false,
-                questions: [...state.questions, nextQ],
+                questions: [...state.questions, newQuestion],
                 currentQuestionIndex: state.currentQuestionIndex + 1,
-                currentMatchingQuestionState: nextQ?.type === 'matching_pairs' ? (nextQ as MatchingPairsQuestion) : null,
+                zerosUsed: containsZero ? state.zerosUsed + 1 : state.zerosUsed,
+                currentMatchingQuestionState: newQuestion?.type === 'matching_pairs' ? (newQuestion as MatchingPairsQuestion) : null,
                 questionStartTime: Date.now(),
             };
         }
@@ -303,7 +309,7 @@ const gameReducer = (state: GameReducerState, action: GameReducerAction): GameRe
 // THE HOOK
 // =================================================================
 
-const ADAPTIVE_MODES = [GameMode.ADDITION, GameMode.SUBTRACTION];
+const ADAPTIVE_MODES = [GameMode.ADDITION, GameMode.SUBTRACTION, GameMode.COMPARISON];
 
 const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEndGame }: UseGameLogicProps): GameLogicState & GameLogicActions => {
   const [state, dispatch] = useReducer(gameReducer, initialState);
@@ -337,10 +343,8 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
     }
 
     try {
-        // For adaptive modes, we only fetch the first question initially.
-        // For others, we fetch the whole batch.
         const numToFetchInitially = isAdaptiveMode ? 1 : questionsToGenerate;
-        const { questions: generatedQuestions, iconsUsedInRound } = await generateQuestionsForRound(
+        const { questions: generatedQuestions, iconsUsedInRound, zerosGenerated } = await generateQuestionsForRound(
             mode, difficulty, unlockedSetIds, numToFetchInitially, masterUsedIcons, questionSignatures.current
         );
 
@@ -353,7 +357,8 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
                 iconsUsed: iconsUsedInRound,
                 numQuestions: questionsToGenerate,
                 timeLimit,
-                gameStatus: initialGameStatus
+                gameStatus: initialGameStatus,
+                zerosUsed: zerosGenerated,
             }
         });
     } catch (error) {
@@ -370,28 +375,57 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
   const fetchAndSetNextQuestion = useCallback(async () => {
     dispatch({ type: 'FETCH_NEXT_QUESTION_START' });
 
-    let requestType: QuestionRequestType = 'STANDARD';
-    if (playerState === PlayerPerformanceState.FLOWING) requestType = 'CHALLENGE';
-    if (playerState === PlayerPerformanceState.STRUGGLING) requestType = 'BOOSTER';
+    const isZeroLimitedMode = [GameMode.ADDITION, GameMode.SUBTRACTION, GameMode.COMPARISON].includes(mode);
+    const ZERO_LIMIT = 2;
 
-    const lastIncorrectQuestion = state.incorrectAttempts.length > 0 ? state.incorrectAttempts[state.incorrectAttempts.length-1].question : undefined;
+    let newQuestion: Question | null = null;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 20; // Max attempts to find a valid (non-zero if needed) question
 
-    const newQuestion = await generateSingleQuestion(mode, difficulty, requestType, {
-        failedQuestion: lastIncorrectQuestion,
-        existingSignatures: questionSignatures.current
-    });
+    // This is the robust "safe loop" to ensure the zero limit is respected.
+    do {
+        const allowZero = !isZeroLimitedMode || state.zerosUsed < ZERO_LIMIT;
+
+        let requestType: QuestionRequestType = 'STANDARD';
+        if (playerState === PlayerPerformanceState.FLOWING) requestType = 'CHALLENGE';
+        if (playerState === PlayerPerformanceState.STRUGGLING) requestType = 'BOOSTER';
+        const lastIncorrectQuestion = state.incorrectAttempts.length > 0 ? state.incorrectAttempts[state.incorrectAttempts.length-1].question : undefined;
+
+        const candidateQuestion = await generateSingleQuestion(mode, difficulty, requestType, {
+            failedQuestion: lastIncorrectQuestion,
+            existingSignatures: questionSignatures.current,
+            allowZero
+        });
+        
+        if (candidateQuestion) {
+            const hasZero = isZeroLimitedMode && questionContainsZero(candidateQuestion);
+            // If the question has a zero, but we've already used up our quota, discard it.
+            if (hasZero && state.zerosUsed >= ZERO_LIMIT) {
+                newQuestion = null; // Invalid, will trigger a retry in the loop.
+            } else {
+                newQuestion = candidateQuestion; // Valid question.
+            }
+        } else {
+            newQuestion = null; // Generation failed, will trigger a retry.
+        }
+        attempts++;
+    } while (!newQuestion && attempts < MAX_ATTEMPTS);
+
 
     if (newQuestion) {
-        dispatch({ type: 'FETCH_NEXT_QUESTION_SUCCESS', payload: { newQuestion } });
+        const newQuestionHasZero = isZeroLimitedMode && questionContainsZero(newQuestion);
+        dispatch({ type: 'FETCH_NEXT_QUESTION_SUCCESS', payload: { newQuestion, containsZero: newQuestionHasZero } });
     } else {
-        console.warn("Failed to generate next adaptive question, ending round.");
+        console.warn("Failed to generate next adaptive question after multiple attempts, ending round.");
         dispatch({ type: 'FETCH_NEXT_QUESTION_FAILURE' });
-        endGame(false);
+        // endGame(false); // Let the reducer handle the state change to 'ended'
     }
-  }, [mode, difficulty, playerState, state.incorrectAttempts]);
+  }, [mode, difficulty, playerState, state.incorrectAttempts, state.zerosUsed]);
 
 
   const goToNextQuestionAfterFeedback = useCallback(() => {
+    if (state.isGeneratingNextQuestion) return; // Prevent multiple calls
+
     if (currentQuestionIndex >= numQuestionsForRound - 1) {
       endGame(false);
       return;
@@ -402,7 +436,7 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
     } else {
       dispatch({ type: 'PROCEED_TO_NEXT_QUESTION' });
     }
-  }, [currentQuestionIndex, numQuestionsForRound, isAdaptiveMode, fetchAndSetNextQuestion]);
+  }, [currentQuestionIndex, numQuestionsForRound, isAdaptiveMode, fetchAndSetNextQuestion, state.isGeneratingNextQuestion]);
 
   const endGame = useCallback((isTimeUp: boolean = false) => {
     stopLowTimeWarning();
@@ -441,6 +475,14 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
       endGame(true);
     }
   }, [gameStatus, timeLeft, endGame]);
+  
+  // Effect to handle the end of the game when generation fails for adaptive modes
+  useEffect(() => {
+    if (gameStatus === 'ended' && !state.showEndGameOverlay && !state.showTimesUpOverlay) {
+        endGame(false);
+    }
+  }, [gameStatus, state.showEndGameOverlay, state.showTimesUpOverlay, endGame]);
+
 
   useEffect(() => {
     const isLowTime = gameStatus === 'playing' && timeLeft !== null && timeLeft > 0 && timeLeft <= 15;
@@ -514,7 +556,7 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
                 dispatch({ type: 'PROCESS_ANSWER', payload: { isCorrect: true, answerTime: 9999, question: currentQuestionState, userAnswer: 'matched', feedback: POSITIVE_FEEDBACKS[Math.floor(Math.random() * POSITIVE_FEEDBACKS.length)] } });
                 setTimeout(() => {
                     goToNextQuestionAfterFeedback();
-                }, 300);
+                }, NEXT_QUESTION_DELAY_MS);
             } else {
                 dispatch({ type: 'SET_MATCHING_FEEDBACK', payload: { message: POSITIVE_FEEDBACKS[Math.floor(Math.random() * POSITIVE_FEEDBACKS.length)], type: 'positive' } });
                  setTimeout(() => dispatch({ type: 'CLEAR_FEEDBACK' }), NEXT_QUESTION_DELAY_MS / 2);
@@ -526,7 +568,7 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
                 const revertedState = { ...currentQuestionState, items: currentQuestionState.items.map(i => ({ ...i, isSelected: false })) };
                 dispatch({ type: 'UPDATE_MATCHING_QUESTION', payload: { newMatchingState: revertedState } });
                 dispatch({ type: 'CLEAR_FEEDBACK' });
-            }, NEXT_QUESTION_DELAY_MS / 2);
+            }, NEXT_QUESTION_DELAY_MS);
         }
     } else if (selectedItems.length <= 1) {
         dispatch({ type: 'UPDATE_MATCHING_QUESTION', payload: { newMatchingState: { ...currentQuestionState, items: newItems } } });

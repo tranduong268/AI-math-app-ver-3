@@ -361,18 +361,19 @@ export interface GameReducerState {
   consecutiveCorrect: number;
   consecutiveIncorrect: number;
   questionStartTime: number; // timestamp
+  zerosUsed: number; // For limiting zero questions in a round
 }
 
 export type GameReducerAction =
   | { type: 'INITIALIZE_GAME_START' }
-  | { type: 'INITIALIZE_GAME_SUCCESS'; payload: { questions: Question[]; iconsUsed: Set<ShapeType>; numQuestions: number; timeLimit: number | null; gameStatus: 'countdown' | 'playing' } }
+  | { type: 'INITIALIZE_GAME_SUCCESS'; payload: { questions: Question[]; iconsUsed: Set<ShapeType>; numQuestions: number; timeLimit: number | null; gameStatus: 'countdown' | 'playing'; zerosUsed: number } }
   | { type: 'INITIALIZE_GAME_FAILURE' }
   | { type: 'START_GAME' }
   | { type: 'TIMER_TICK' }
   | { type: 'PROCESS_ANSWER'; payload: { isCorrect: boolean; answerTime: number; question: Question; userAnswer: string | number | string[] | boolean; feedback: string } }
   | { type: 'SET_LAST_ANSWER'; payload: { answer: string | number | string[] | boolean } }
   | { type: 'FETCH_NEXT_QUESTION_START' }
-  | { type: 'FETCH_NEXT_QUESTION_SUCCESS'; payload: { newQuestion: Question } }
+  | { type: 'FETCH_NEXT_QUESTION_SUCCESS'; payload: { newQuestion: Question; containsZero: boolean } }
   | { type: 'FETCH_NEXT_QUESTION_FAILURE' }
   | { type: 'PROCEED_TO_NEXT_QUESTION' } // For non-adaptive modes
   | { type: 'UPDATE_MATCHING_QUESTION'; payload: { newMatchingState: MatchingPairsQuestion } }

@@ -1,8 +1,8 @@
 
 // src/services/questionService.ts
 
-import { GameMode, DifficultyLevel, Question, ShapeType, IconData, QuestionRequestType, QuestionGenerationContext, MathQuestion, ComparisonQuestion } from '../../types';
-import { getAllBaseUnlockedIcons, shuffleArray } from './questionUtils';
+import { GameMode, DifficultyLevel, Question, ShapeType, IconData, QuestionRequestType, QuestionGenerationContext } from '../../types';
+import { getAllBaseUnlockedIcons, shuffleArray, questionContainsZero } from './questionUtils';
 import { ICON_DATA } from '../data/iconData';
 
 // Import individual question generators
@@ -106,28 +106,6 @@ export const generateSingleQuestion = async (
     return question;
 };
 
-const questionContainsZero = (q: Question | null): boolean => {
-    if (!q) return false;
-    switch(q.type) {
-        case 'math': {
-            const mq = q as MathQuestion;
-            if (mq.variant === 'standard') return [mq.operand1True, mq.operand2True, mq.resultTrue].includes(0);
-            if (mq.variant === 'multiple_choice') return [mq.operand1, mq.operand2, mq.answer].includes(0) || mq.options.some(o => o.value === 0);
-            if (mq.variant === 'true_false') return [mq.operand1, mq.operand2, mq.displayedResult].includes(0);
-            if (mq.variant === 'balancing_equation') return [mq.operand1, mq.operand2, mq.operand3, mq.answer].includes(0);
-            break;
-        }
-        case 'comparison': {
-            const cq = q as ComparisonQuestion;
-            if (cq.variant === 'standard') return [cq.number1, cq.number2].includes(0);
-            if (cq.variant === 'expression_comparison') return [cq.expOperand1, cq.expOperand2, cq.compareTo].includes(0);
-            if (cq.variant === 'true_false') return [cq.number1, cq.number2].includes(0);
-            break;
-        }
-    }
-    return false;
-}
-
 
 export const generateQuestionsForRound = async (
   mode: GameMode,
@@ -136,7 +114,7 @@ export const generateQuestionsForRound = async (
   numQuestions: number,
   masterUsedIcons: ShapeType[],
   existingSignatures: Set<string>
-): Promise<{ questions: Question[], iconsUsedInRound: Set<ShapeType> }> => {
+): Promise<{ questions: Question[], iconsUsedInRound: Set<ShapeType>, zerosGenerated: number }> => {
   const iconsUsedInCurrentGenerationCycle = new Set<ShapeType>();
   
   // --- AI Mode Handling (Batch Generation with Icon Seeding) ---
@@ -166,7 +144,7 @@ export const generateQuestionsForRound = async (
     });
 
     iconsUsed.forEach(icon => iconsUsedInCurrentGenerationCycle.add(icon));
-    return { questions: finalAiQuestions, iconsUsedInRound: iconsUsedInCurrentGenerationCycle };
+    return { questions: finalAiQuestions, iconsUsedInRound: iconsUsedInCurrentGenerationCycle, zerosGenerated: 0 };
   }
 
   // --- Standard & Adaptive Mode Handling (Loop-based Generation) ---
@@ -223,13 +201,13 @@ export const generateQuestionsForRound = async (
             questions.push(q);
         }
     }
-    return { questions, iconsUsedInRound: new Set() };
+    return { questions, iconsUsedInRound: new Set(), zerosGenerated: zerosUsed };
   }
 
   // Special handling for non-adaptive Comparison 'Choi' level to get a balanced set
   if (mode === GameMode.COMPARISON && difficulty === DifficultyLevel.PRE_SCHOOL_CHOI && numQuestions > 1) {
-      const comparisonQuestions = generateComparisonQuestionsForChoi(difficulty, existingSignatures, numQuestions);
-      return { questions: comparisonQuestions, iconsUsedInRound: new Set() };
+      const { questions: comparisonQuestions, zerosGenerated } = generateComparisonQuestionsForChoi(difficulty, existingSignatures, numQuestions);
+      return { questions: comparisonQuestions, iconsUsedInRound: new Set(), zerosGenerated };
   }
 
   for (let i = 0; i < numQuestions; i++) {
@@ -276,5 +254,5 @@ export const generateQuestionsForRound = async (
     }
   }
 
-  return { questions, iconsUsedInRound: iconsUsedInCurrentGenerationCycle };
+  return { questions, iconsUsedInRound: iconsUsedInCurrentGenerationCycle, zerosGenerated: zerosUsed };
 };

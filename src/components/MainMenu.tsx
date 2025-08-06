@@ -1,5 +1,6 @@
 
 
+
 import React, { useMemo, useCallback } from 'react';
 import { GameMode, DifficultyLevel } from '../../types';
 import { useAudio } from '../contexts/AudioContext';
@@ -54,12 +55,18 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, onShowReview, totalSta
 
   const handleStartGameWithSound = useCallback((mode: GameMode) => {
     playSound('DECISION');
-    onStartGame(mode);
+    // Add a small delay to allow the sound to play before the component unmounts
+    setTimeout(() => {
+        onStartGame(mode);
+    }, 300);
   }, [onStartGame, playSound]);
 
   const handleShowReviewWithSound = useCallback(() => {
     playSound('DECISION');
-    onShowReview();
+    // Add a small delay to allow the sound to play before the component unmounts
+    setTimeout(() => {
+        onShowReview();
+    }, 300);
   }, [onShowReview, playSound]);
 
   const gameModeItems = useMemo<MenuItem[]>(() => [
