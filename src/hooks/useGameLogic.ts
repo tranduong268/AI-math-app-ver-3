@@ -2,6 +2,8 @@
 
 
 
+
+
 import { useEffect, useCallback, useReducer, useRef } from 'react';
 import { 
   GameMode, DifficultyLevel, Question, IncorrectAttempt, MatchingPairsQuestion, EndGameMessageInfo, 
@@ -418,28 +420,17 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
     } else {
         console.warn("Failed to generate next adaptive question after multiple attempts, ending round.");
         dispatch({ type: 'FETCH_NEXT_QUESTION_FAILURE' });
-        // endGame(false); // Let the reducer handle the state change to 'ended'
     }
   }, [mode, difficulty, playerState, state.incorrectAttempts, state.zerosUsed]);
 
 
-  const goToNextQuestionAfterFeedback = useCallback(() => {
-    if (state.isGeneratingNextQuestion) return; // Prevent multiple calls
-
-    if (currentQuestionIndex >= numQuestionsForRound - 1) {
-      endGame(false);
-      return;
-    }
-    
-    if(isAdaptiveMode) {
-      fetchAndSetNextQuestion();
-    } else {
-      dispatch({ type: 'PROCEED_TO_NEXT_QUESTION' });
-    }
-  }, [currentQuestionIndex, numQuestionsForRound, isAdaptiveMode, fetchAndSetNextQuestion, state.isGeneratingNextQuestion]);
-
   const endGame = useCallback((isTimeUp: boolean = false) => {
     stopLowTimeWarning();
+    // Prevent multiple endGame calls
+    if (gameStatus === 'ended' && (state.showEndGameOverlay || state.showTimesUpOverlay)) {
+        return;
+    }
+
     const finalTimeTaken = isTimeUp ? totalTime : (totalTime !== null && timeLeft !== null) ? totalTime - timeLeft : null;
     const finalStars = calculateStars(score, numQuestionsForRound);
     const messageInfo = createEndGameMessage(score, numQuestionsForRound, isTimeUp, finalTimeTaken);
@@ -463,7 +454,23 @@ const useGameLogic = ({ mode, difficulty, unlockedSetIds, masterUsedIcons, onEnd
     } else {
       showSummary();
     }
-  }, [score, numQuestionsForRound, playSound, timeLeft, totalTime, stopLowTimeWarning]);
+  }, [score, numQuestionsForRound, playSound, timeLeft, totalTime, stopLowTimeWarning, gameStatus, state.showEndGameOverlay, state.showTimesUpOverlay]);
+
+  const goToNextQuestionAfterFeedback = useCallback(() => {
+    if (state.isGeneratingNextQuestion) return; // Prevent multiple calls
+
+    // End game if we've reached the target number of questions
+    if (currentQuestionIndex >= numQuestionsForRound - 1) {
+      endGame(false);
+      return;
+    }
+    
+    if(isAdaptiveMode) {
+      fetchAndSetNextQuestion();
+    } else {
+      dispatch({ type: 'PROCEED_TO_NEXT_QUESTION' });
+    }
+  }, [currentQuestionIndex, numQuestionsForRound, isAdaptiveMode, fetchAndSetNextQuestion, state.isGeneratingNextQuestion, endGame]);
 
   useEffect(() => {
     if (gameStatus === 'playing' && timeLeft !== null && timeLeft > 0) {
